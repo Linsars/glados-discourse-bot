@@ -92,15 +92,19 @@ async function nlReadTopic(cookie, topic) {
     await fetch(NL_BASE + '/', { headers: { ...hdrs, 'Referer': NL_BASE + '/t/' + topic.id } });
 }
 
-// 获取今日 NodeLoc 统计（给外部用）
+// 获取今日 NodeLoc 统计
 async function nlGetDailyStats(userId, env) {
     try {
         const state = await nlGetState(userId, env);
         const today = new Date().toISOString().slice(0,10);
-        if (state.date !== today) return { readsToday: 0 };
-        return { readsToday: state.readsToday };
+        const isToday = state.date === today;
+        return {
+            readsToday: isToday ? state.readsToday : 0,
+            readTotal: state.readTotal || 0,
+            restUntil: (state.restUntil || 0) > Date.now() ? state.restUntil : 0
+        };
     } catch(e) {
-        return { readsToday: 0 };
+        return { readsToday: 0, readTotal: 0, restUntil: 0 };
     }
 }
 
@@ -178,7 +182,7 @@ export default {
         }
         
         if (request.method === 'POST' && url.pathname === '/internal/task') {
-            if (request.headers.get('X-Bot-Token') !== env.ENV_BOT_TOKEN) return new Response('Forbidden', { status: 403 });
+            if (request.headers.get('X-Bot-Token') !== env.BOT_TOKEN) return new Response('Forbidden', { status: 403 });
             try {
                 const task = await request.json();
                 ctx.waitUntil(executeTask(task, env, origin).catch(e => console.log("Task Error:", e)));
@@ -187,17 +191,25 @@ export default {
         }
         
         if (url.pathname === '/setup') {
-            if (!env.ENV_BOT_TOKEN) return new Response('请先配置 BOT_TOKEN');
+            if (!env.BOT_TOKEN) return new Response('请先配置 BOT_TOKEN');
             const webhookUrl = `https://${url.hostname}/webhook`;
-            await fetch(`https://api.telegram.org/bot${env.ENV_BOT_TOKEN}/setWebhook?url=${webhookUrl}`);
+            await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/setWebhook?url=${webhookUrl}`);
             const commands = [{ command: "start", description: "启动/重置机器人菜单" }];
-            const tgData = await fetch(`https://api.telegram.org/bot${env.ENV_BOT_TOKEN}/setMyCommands`, {
+            const tgData = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/setMyCommands`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commands })
             }).then(r => r.json());
 
             return new Response(JSON.stringify(tgData), { headers: { 'Content-Type': 'application/json' } });
         }
         
+        if (url.pathname === '/debug') {
+            const diag = {
+                hasKV: typeof env.GLADOS_DB !== 'undefined',
+                hasAdminID: typeof env.ADMIN_ID !== 'undefined',
+                hasBotToken: typeof env.BOT_TOKEN !== 'undefined'
+            };
+            return new Response(JSON.stringify(diag, null, 2), { headers: { 'Content-Type': 'application/json' } });
+        }
         return new Response('GLaDOS Bot 链式驱动引擎正常运行中。');
     },
 
@@ -212,8 +224,8 @@ async function handleUpdate(update, env, origin) {
     if (update.message) uid = String(update.message.from.id);
     else if (update.callback_query) uid = String(update.callback_query.from.id);
 
-    if (env.ENV_ADMIN_ID && uid) {
-        const adminIdStr = String(env.ENV_ADMIN_ID).trim();
+    if (env.ADMIN_ID && uid) {
+        const adminIdStr = String(env.ADMIN_ID).trim();
         if (uid !== adminIdStr) {
             if (update.message && update.message.text === '/start') {
                 await tgSend(uid, "⛔️ <b>未授权</b>\n\n您不是该机器人的管理员，无法使用。", env);
@@ -256,7 +268,7 @@ async function handleCallback(callbackQuery, env, origin) {
     const userId = String(callbackQuery.from.id);
     const data = callbackQuery.data;
 
-    await fetch(`https://api.telegram.org/bot${env.ENV_BOT_TOKEN}/answerCallbackQuery`, {
+    await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/answerCallbackQuery`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ callback_query_id: callbackQuery.id })
     });
 
@@ -650,7 +662,13 @@ async function executeTask(task, env, origin) {
             if (acc.domain === 'nodeloc.com') {
                 if (type === 'view_all') {
                     const s = await nlGetDailyStats(userId, env);
-                    msgs.push(`〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️\n[${i+1}/${accounts.length}] 👤 ${maskEmail(acc.email, pref.showEmail)}\n ├ 🌐 NodeLoc 自动阅读\n ├ 📝 今日已读 ${s.readsToday} 帖`);
+                    let nlInfo = `├ 🌐 NodeLoc 自动阅读\n├ 📝 今日已读 ${s.readsToday} 帖`;
+                    if (s.readTotal > 0) nlInfo += `\n├ 📚 累计阅读 ${s.readTotal} 帖`;
+                    if (s.restUntil > 0) {
+                        const mins = Math.ceil((s.restUntil - Date.now()) / 60000);
+                        nlInfo += `\n├ 💤 休息中（剩余 ${mins} 分钟）`;
+                    }
+                    msgs.push(`〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️\n[${i+1}/${accounts.length}] 👤 ${maskEmail(acc.email, pref.showEmail)}\n${nlInfo}`);
                 }
                 continue;
             }
@@ -751,6 +769,7 @@ async function handleScheduled(env) {
             let nlLine = '';
             if (nlStats.readsToday > 0) {
                 nlLine = `\n🌐 NodeLoc 今日已阅读 ${nlStats.readsToday} 帖`;
+                if (nlStats.readTotal > 0) nlLine += `（累计 ${nlStats.readTotal}）`;
             }
             await tgSend(userId, `⏰ <b>定时签到自动完成</b>\n已在后台成功向 ${gladosCount} 个账号发送了签到指令。${nlLine}`, env);
         }
@@ -1015,12 +1034,12 @@ async function showExchangePlans(chatId, messageId, index, acc, userId, env) {
 async function tgSend(chatId, text, env, keyboard = null) {
     const payload = { chat_id: chatId, text: text, parse_mode: 'HTML', disable_web_page_preview: true };
     if (keyboard) payload.reply_markup = keyboard;
-    try { await fetch(`https://api.telegram.org/bot${env.ENV_BOT_TOKEN}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
+    try { await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
 }
 
 async function tgEdit(chatId, msgId, text, keyboard, env) {
     const payload = { chat_id: chatId, message_id: msgId, text: text, parse_mode: 'HTML', disable_web_page_preview: true };
     if (keyboard) payload.reply_markup = keyboard;
-    try { await fetch(`https://api.telegram.org/bot${env.ENV_BOT_TOKEN}/editMessageText`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
+    try { await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/editMessageText`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
 }
 
