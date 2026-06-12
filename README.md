@@ -31,11 +31,13 @@ GLaDOS 自动签到 + NodeLoc 自动阅读 合体 Telegram Bot，运行在 Cloud
    - 部署界面会让你绑定 `GLADOS_DB` KV 命名空间
    - 直接选「创建新 Namespace」或选已有的即可
 4. **设置环境变量**
-   - `ENV_BOT_TOKEN`：Telegram Bot Token（[BotFather](https://t.me/BotFather) 创建）
-   - `ENV_ADMIN_ID`：你的 Telegram 用户 ID（[获取](https://t.me/userinfobot)）
-5. **部署**
+   - `BOT_TOKEN`：Telegram Bot Token（[BotFather](https://t.me/BotFather) 创建）
+   - `ADMIN_ID`：你的 Telegram 用户 ID（[获取](https://t.me/userinfobot)）
+5. **部署并激活**
    - Cron 触发器已默认配置 `0 * * * *`，无需手动设置
-   - ⚠️ `wrangler.toml` 中不要写 `id` 字段，否则部署会失败
+   - 部署完成后**访问 Worker 域名**，自动激活 Webhook + 注册命令
+   - 然后给你的 Bot 发 `/start` 即开始使用
+   - ⚠️ `wrangler.toml` 中 `kv_namespaces` 不要写 `id` 字段，否则部署会失败
 
 ## 使用
 
@@ -92,8 +94,8 @@ npm install -g wrangler
 npx wrangler kv namespace create GLADOS_DB
 
 # 设置秘密变量
-npx wrangler secret put ENV_ADMIN_ID
-npx wrangler secret put ENV_BOT_TOKEN
+npx wrangler secret put ADMIN_ID
+npx wrangler secret put BOT_TOKEN
 
 # 部署
 npx wrangler deploy
