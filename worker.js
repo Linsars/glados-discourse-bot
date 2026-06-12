@@ -515,7 +515,7 @@ async function handleCallback(callbackQuery, env, origin) {
     else if (data === 'add_nodeloc') {
         await env.GLADOS_DB.put(`STATE_${userId}`, 'AWAITING_NODELOC_COOKIE', { expirationTtl: 300 });
         await env.GLADOS_DB.put(`TEMP_${userId}`, 'nodeloc.com', { expirationTtl: 300 });
-        await tgSend(chatId, "🌐 <b>绑定 NodeLoc 账号</b>\n\n请发送你的 Cookie：\n\n1. 浏览器登录 https://www.nodeloc.com\n2. F12 → Application → Cookies → 复制所有 Cookie 字符串\n3. 粘贴到这里\n\n格式：<code>名称:cookie</code>\n例如：<code>myaccount:_forum_session=xxx; _t=yyy</code>\n\n建议从 F12 → Application → Cookies 复制全部 Cookie 值", env);
+        await tgSend(chatId, "🌐 <b>绑定 NodeLoc 账号</b>\n\n直接发送 Cookie 即可，无需加任何前缀或名称。", env);
     }
     else if (data.startsWith('doexch_')) {
         const parts = data.split('_');
