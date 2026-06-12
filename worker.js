@@ -105,7 +105,7 @@ async function nlGetDailyStats(userId, env) {
         return {
             readsToday: isToday ? state.readsToday : 0,
             readTotal: state.readTotal || 0,
-            totalReadTime: Math.round((state.totalReadTime || 0) / 60), // 转分钟
+            totalReadTime: Math.round((state.totalReadTime || 0) / 60000), // ms→分钟
             restUntil: (state.restUntil || 0) > Date.now() ? state.restUntil : 0,
             cookieError: state.cookieError || ''
         };
