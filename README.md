@@ -46,7 +46,6 @@ GLaDOS 自动签到 + NodeLoc 自动阅读 合体 Telegram Bot，运行在 Cloud
      }
      ```
    - 然后给你的 Bot 发 `/start` 即开始使用
-   - ⚠️ `wrangler.toml` 中 `kv_namespaces` 不要写 `id` 字段，否则部署会失败
 
 ## 使用
 
