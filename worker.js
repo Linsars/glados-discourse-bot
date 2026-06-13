@@ -114,6 +114,7 @@ async function nlGetDailyStats(userId, env) {
     }
 }
 
+// 获取今日 NodeSeek 统计
 // 主入口：每次 cron 触发，静默读多帖
 async function runNodelocBatch(userId, cookie, env) {
     if (!cookie) return;
@@ -173,7 +174,168 @@ async function runNodelocBatch(userId, cookie, env) {
         // 静默失败，不影响签到
     }
 }
-// ================= End NodeLoc Module ================= =================
+// ================= End NodeLoc Module =================
+
+// ================= NodeSeek 自动阅读模块 =================
+const NS_BASE = 'https://nodeseek.cc';
+const NS_UAS = NL_UAS;
+const NS_TOPICS_PER_RUN = 3;
+const NS_REST_CHANCE = 0.12;
+const NS_REST_MIN = 20;
+const NS_REST_MAX = 40;
+
+async function nsSaveState(userId, state, env) {
+    await env.GLADOS_DB.put(`NS_STATE_${userId}`, JSON.stringify(state));
+}
+
+async function nsGetState(userId, env) {
+    try {
+        return JSON.parse(await env.GLADOS_DB.get(`NS_STATE_${userId}`) || '{}');
+    } catch(e) { return {}; }
+}
+
+// 获取今日 NodeSeek 统计
+async function nsGetDailyStats(userId, env) {
+    try {
+        const state = await nsGetState(userId, env);
+        const today = new Date().toISOString().slice(0,10);
+        const isToday = state.date === today;
+        return {
+            readsToday: isToday ? state.readsToday : 0,
+            readTotal: state.readTotal || 0,
+            totalReadTime: Math.round((state.totalReadTime || 0) / 60000),
+            restUntil: (state.restUntil || 0) > Date.now() ? state.restUntil : 0,
+            cookieError: state.cookieError || ''
+        };
+    } catch(e) {
+        return { readsToday: 0, readTotal: 0, totalReadTime: 0, restUntil: 0, cookieError: '' };
+    }
+}
+
+// 刷新话题队列
+async function nsRefreshQueue(cookie) {
+    const r = await fetch(NS_BASE + '/latest.json', {
+        headers: { 'User-Agent': NS_UAS[nlRand(0,NS_UAS.length-1)], 'Cookie': cookie, 'Accept': 'application/json' }
+    });
+    if (!r.ok) throw new Error('ns获取话题列表失败');
+    const d = await r.json();
+    const topics = (d.topic_list?.topics || []).filter(t => !t.pinned && t.id);
+    return topics.map(t => ({ id: t.id, title: t.title || '话题#'+t.id }));
+}
+
+// 模拟阅读一帖（静默，不抛消息）
+async function nsReadTopic(cookie, topic) {
+    await nlSleep(nlRand(5000, 15000));
+    const ua = NS_UAS[nlRand(0, NS_UAS.length-1)];
+    const hdrs = {
+        'User-Agent': ua,
+        'Cookie': cookie,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Referer': NS_BASE + '/',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+    };
+    const resp = await fetch(NS_BASE + '/t/' + topic.id, { headers: hdrs });
+    if (!resp.ok) return { ok: false, cookieError: '', readTime: 0 };
+
+    // 检查 Cookie 是否失效
+    if (resp.headers.get('x-discourse-logged-out') === '1') {
+        return { ok: false, cookieError: 'Cookie 已失效，请重新添加', readTime: 0 };
+    }
+
+    // NodeSeek 没有 csrf meta，从 /session/csrf API 获取
+    let csrf = '';
+    try {
+        const csrfResp = await fetch(NS_BASE + '/session/csrf', {
+            headers: { 'User-Agent': ua, 'Cookie': cookie, 'Accept': 'application/json' }
+        });
+        if (csrfResp.ok) {
+            const csrfData = await csrfResp.json();
+            csrf = csrfData.csrf || '';
+        }
+    } catch(e) {}
+
+    const readTime = nlRand(60000, 120000);
+    await nlSleep(readTime);
+
+    if (csrf) {
+        try {
+            await fetch(NS_BASE + '/t/' + topic.id + '/timings', {
+                method: 'POST',
+                headers: {
+                    'User-Agent': ua,
+                    'Cookie': cookie,
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrf,
+                    'Accept': 'application/json, text/javascript, */*; q=0.01',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Referer': NS_BASE + '/t/' + topic.id,
+                    'Origin': NS_BASE
+                },
+                body: JSON.stringify({
+                    [`timings[${topic.id}]`]: readTime,
+                    topic_time: readTime,
+                    topic_id: topic.id
+                })
+            });
+        } catch(e) {}
+    }
+
+    return { ok: true, cookieError: '', readTime };
+}
+
+// 主入口：每次 cron 触发，静默读多帖
+async function runNodeseekBatch(userId, cookie, env) {
+    const now = Date.now();
+    const state = await nsGetState(userId, env);
+    const today = new Date().toISOString().slice(0,10);
+    if (state.date !== today) { state.readsToday = 0; state.date = today; }
+
+    const rest = parseInt(state.restUntil) || 0;
+    if (rest > now) return;
+
+    // 刷新话题队列
+    if (!state.queue || state.queue.length === 0) {
+        try {
+            const topics = await nsRefreshQueue(cookie);
+            if (topics.length === 0) return;
+            state.queue = topics.sort(() => Math.random() - 0.5);
+        } catch(e) { return; }
+    }
+
+    let readsToday = parseInt(state.readsToday) || 0;
+    let totalReadTime = parseInt(state.totalReadTime) || 0;
+    let readTotal = parseInt(state.readTotal) || 0;
+
+    for (let attempt = 0; attempt < NS_TOPICS_PER_RUN && state.queue.length > 0; attempt++) {
+        if ((parseInt(state.restUntil) || 0) > Date.now()) break;
+
+        const topic = state.queue.shift();
+        const result = await nsReadTopic(cookie, topic);
+        if (!result.ok && result.cookieError) {
+            state.cookieError = result.cookieError;
+            await nsSaveState(userId, state, env);
+            return;
+        }
+
+        readsToday++;
+        readTotal++;
+        totalReadTime += result.readTime || 0;
+        state.readsToday = readsToday;
+        state.readTotal = readTotal;
+        state.totalReadTime = totalReadTime;
+        await nsSaveState(userId, state, env);
+
+        // 随机休息（每 5 帖约 12% 概率休息 20-40 分钟）
+        if (readsToday > 0 && readsToday % 5 === 0 && Math.random() < NS_REST_CHANCE) {
+            state.restUntil = now + nlRand(NS_REST_MIN, NS_REST_MAX) * 60000;
+            await nsSaveState(userId, state, env);
+            return;
+        }
+    }
+}
+// ================= End NodeSeek Module =================
 
 
 
@@ -800,23 +962,38 @@ async function handleScheduled(env) {
                 });
                 await new Promise(r => setTimeout(r, 600));
             }
-            const gladosCount = accounts.filter(a => a.domain !== 'nodeloc.com').length;
+            const gladosCount = accounts.filter(a => a.domain !== 'nodeloc.com' && a.domain !== 'nodeseek.cc').length;
             const nlStats = await nlGetDailyStats(userId, env);
-            let nlLine = '';
+            const nsStats = await nsGetDailyStats(userId, env);
+            let extraLine = '';
             if (nlStats.readsToday > 0) {
-                nlLine = `\n🌐 NodeLoc 今日已阅读 ${nlStats.readsToday} 帖`;
-                if (nlStats.totalReadTime > 0) nlLine += `（${nlStats.totalReadTime} 分钟）`;
+                extraLine += `\n🌐 NodeLoc 今日已阅读 ${nlStats.readsToday} 帖`;
+                if (nlStats.totalReadTime > 0) extraLine += `（${nlStats.totalReadTime} 分钟）`;
             }
             if (nlStats.cookieError) {
-                nlLine += `\n⚠️ NodeLoc: ${nlStats.cookieError}`;
+                extraLine += `\n⚠️ NodeLoc: ${nlStats.cookieError}`;
             }
-            await tgSend(userId, `⏰ <b>定时签到自动完成</b>\n已在后台成功向 ${gladosCount} 个账号发送了签到指令。${nlLine}`, env);
+            if (nsStats.readsToday > 0) {
+                extraLine += `\n🔹 NodeSeek 今日已阅读 ${nsStats.readsToday} 帖`;
+                if (nsStats.totalReadTime > 0) extraLine += `（${nsStats.totalReadTime} 分钟）`;
+            }
+            if (nsStats.cookieError) {
+                extraLine += `\n⚠️ NodeSeek: ${nsStats.cookieError}`;
+            }
+            await tgSend(userId, `⏰ <b>定时签到自动完成</b>\n已在后台成功向 ${gladosCount} 个账号发送了签到指令。${extraLine}`, env);
         }
         // NodeLoc 静默阅读（每次 cron 触发都跑，独立于签到）
         const nlAcc = accounts.find(a => a.domain === 'nodeloc.com' && a.cookie);
         if (nlAcc) {
             try {
                 await runNodelocBatch(userId, nlAcc.cookie, env);
+            } catch(e) {}
+        }
+        // NodeSeek 静默阅读（每次 cron 触发都跑，独立于签到）
+        const nsAcc = accounts.find(a => a.domain === 'nodeseek.cc' && a.cookie);
+        if (nsAcc) {
+            try {
+                await runNodeseekBatch(userId, nsAcc.cookie, env);
             } catch(e) {}
         }
     }
