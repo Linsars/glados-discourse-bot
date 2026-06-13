@@ -320,6 +320,7 @@ async function handleMessage(message, env, origin) {
     const state = await env.GLADOS_DB.get(`STATE_${userId}`);
     if (state === 'AWAITING_ACCOUNT_INFO') await processAddAccountInfo(chatId, userId, text, env);
     else if (state === 'AWAITING_NODELOC_COOKIE') await processAddAccountInfo(chatId, userId, text, env);
+    else if (state === 'AWAITING_NODESEEK_COOKIE') await processAddAccountInfo(chatId, userId, text, env);
     else if (state === 'AWAITING_UPDATE_COOKIE') await processUpdateCookie(chatId, userId, text, env);
     else if (state === 'AWAITING_CRON_TIME') await processCronTime(chatId, userId, text, env);
     else if (state === 'AWAITING_NEW_SITE') await processNewSite(chatId, userId, text, env);
