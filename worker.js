@@ -60,7 +60,7 @@ async function nlRefreshQueue(baseUrl, cookie) {
 }
 
 // 模拟阅读一帖（静默，不抛消息）
-async function nlReadTopic(baseUrl, cookie, topic) {
+async function nlReadTopic(baseUrl, cookie, topic, fast = false) {
     await nlSleep(nlRand(5000, 15000));
     const ua = NL_UAS[nlRand(0, NL_UAS.length-1)];
     const hdrs = {
@@ -108,8 +108,8 @@ async function nlReadTopic(baseUrl, cookie, topic) {
     if (!csrf) {
         csrf = decodeURIComponent((cookie.match(/_t=([^;]+)/) || [,''])[1]);
     }
-    const readTime = nlRand(60000, 120000);
-    await nlSleep(readTime);
+    const readTime = fast ? nlRand(2000, 5000) : nlRand(60000, 120000);
+    await nlSleep(fast ? nlRand(500, 1500) : readTime);
 
     if (csrf) {
         try {
@@ -188,7 +188,7 @@ async function ldGetDailyStats(userId, env) {
 }
 
 // 主入口：每次 cron 触发，静默读多帖
-async function runNodelocBatch(userId, cookie, env, baseUrl = NL_BASE) {
+async function runNodelocBatch(userId, cookie, env, baseUrl = NL_BASE, fast = false) {
     if (!cookie) return;
     try {
         const state = await nlGetState(userId, env);
@@ -225,7 +225,7 @@ async function runNodelocBatch(userId, cookie, env, baseUrl = NL_BASE) {
             }
 
             const topic = state.queue.shift();
-            const result = await nlReadTopic(baseUrl, cookie, topic);
+            const result = await nlReadTopic(baseUrl, cookie, topic, fast);
             if (!result.ok) {
                 if (result.cookieError) state.cookieError = result.cookieError;
                 state._lastError = result.cookieError ? 'Cookie 过期' : ('话题 #' + topic.id + ' 阅读失败');
@@ -672,7 +672,7 @@ async function handleCallback(callbackQuery, env, origin) {
                 const state = await nlGetState(userId, env);
                 delete state.restUntil;
                 await nlSaveState(userId, state, env);
-                await runNodelocBatch(userId, acc.cookie, env);
+                await runNodelocBatch(userId, acc.cookie, env, NL_BASE, true);
                 const st = await nlGetState(userId, env);
                 await tgSend(chatId, `✅ NodeLoc 阅读完成！\n📖 累计已读 ${st.readTotal || 0} 帖（今日 ${st.readsToday || 0} 帖）`, env);
             } catch(e) {
@@ -687,7 +687,7 @@ async function handleCallback(callbackQuery, env, origin) {
                 const state = JSON.parse(await env.GLADOS_DB.get('NS_STATE_' + userId) || '{}');
                 delete state.restUntil;
                 await env.GLADOS_DB.put('NS_STATE_' + userId, JSON.stringify(state));
-                await runNodelocBatch(userId, acc.cookie, env, 'https://nodeseek.cc');
+                await runNodelocBatch(userId, acc.cookie, env, 'https://nodeseek.cc', true);
                 const st = JSON.parse(await env.GLADOS_DB.get('NS_STATE_' + userId) || '{}');
                 const info = [];
                 info.push(`✅ 阅读完成！`);
@@ -708,7 +708,7 @@ async function handleCallback(callbackQuery, env, origin) {
                 const state = JSON.parse(await env.GLADOS_DB.get('LD_STATE_' + userId) || '{}');
                 delete state.restUntil;
                 await env.GLADOS_DB.put('LD_STATE_' + userId, JSON.stringify(state));
-                await runNodelocBatch(userId, acc.cookie, env, 'https://linux.do');
+                await runNodelocBatch(userId, acc.cookie, env, 'https://linux.do', true);
                 const st = JSON.parse(await env.GLADOS_DB.get('LD_STATE_' + userId) || '{}');
                 await tgSend(chatId, `✅ LinuxDO 阅读完成！\n📖 累计已读 ${st.readTotal || 0} 帖（今日 ${st.readsToday || 0} 帖）`, env);
             } catch(e) {
