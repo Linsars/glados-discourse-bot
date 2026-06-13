@@ -675,24 +675,70 @@ async function handleCallback(callbackQuery, env, origin) {
             return;
         }
         if (acc.domain === 'nodeseek.cc') {
-            const resp = await tgSend(chatId, "📖 正在执行 NodeSeek 立即阅读...", env);
-            const msgId = resp?.result?.message_id;
+            // 直接编辑当前回调消息
+            const origMsgId = callbackQuery.message.message_id;
+            await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/editMessageText`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chat_id: chatId, message_id: origMsgId,
+                    text: "📖 正在执行 NodeSeek 立即阅读（直线版）...",
+                    parse_mode: 'HTML'
+                })
+            });
+            const mid = origMsgId;
+            // Stage 0: latest.json
+            await tgEdit(chatId, mid, "🟡 阶段0: 获取 latest.json...", null, env);
             try {
-                const state = JSON.parse(await env.GLADOS_DB.get('NS_STATE_' + userId) || '{}');
-                delete state.restUntil;
-                await env.GLADOS_DB.put('NS_STATE_' + userId, JSON.stringify(state));
-                await runNodelocBatch(userId, acc.cookie, env, 'https://nodeseek.cc', true, 'NS');
+                // Stage 1: latest.json
+                await tgEdit(chatId, mid, "🟡 阶段1/4: 正在获取 latest.json...", null, env);
+                const r1 = await safeFetchTimeout('https://nodeseek.cc/latest.json?no_definitions=true', {
+                    headers: { 'User-Agent': HEADERS['User-Agent'], 'Cookie': acc.cookie, 'Accept': 'application/json' }
+                }, 15000);
+                if (!r1) { await tgEdit(chatId, mid, '❌ /latest.json 获取超时', null, env); return; }
+                await tgEdit(chatId, mid, "🟢 /latest.json 成功，解析中...", null, env);
+                const d1 = await r1.json().catch(() => ({}));
+                const topics = (d1?.topic_list?.topics || []).filter(t => !t.pinned && t.id).slice(0, NL_TOPICS_PER_RUN);
+                if (topics.length === 0) { await tgEdit(chatId, mid, '❌ 无可用话题', null, env); return; }
+                // Stage 2: 逐帖读
+                let ok = 0;
+                for (let i = 0; i < topics.length; i++) {
+                    const t = topics[i];
+                    await tgEdit(chatId, mid, `🟡 阶段2/4: 读第 ${i+1}/${topics.length} 帖 (id=${t.id})...`, null, env);
+                    const r2 = await safeFetchTimeout(`https://nodeseek.cc/t/${t.id}`, {
+                        headers: { 'User-Agent': HEADERS['User-Agent'], 'Cookie': acc.cookie }
+                    }, 15000);
+                    if (!r2 || !r2.ok) { await tgEdit(chatId, mid, `❌ 话题 #${t.id} fetch 失败`, null, env); continue; }
+                    if (r2.headers.get('x-discourse-logged-out') === '1') {
+                        await tgEdit(chatId, mid, '❌ Cookie 已失效', null, env); return;
+                    }
+                    await tgEdit(chatId, mid, `🟡 阶段2/4: 话题 #${t.id} 已获取，解析 CSRF...`, null, env);
+                    const html = await r2.text();
+                    const csrf = (html.match(/csrf-token" content="([^"]+)"/) || [])[1]
+                        || decodeURIComponent((acc.cookie.match(/_t=([^;]+)/) || [,''])[1]);
+                    if (!csrf) { ok++; continue; }
+                    // Stage 3: 发送时长
+                    await tgEdit(chatId, mid, `🟡 阶段3/4: 发送阅读时长 (话题 #${t.id})...`, null, env);
+                    const readMs = 3000 + Math.floor(Math.random() * 2000);
+                    // 不等待时序 POST
+                    fetch(`https://nodeseek.cc/t/${t.id}/timings`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf, 'Cookie': acc.cookie, 'User-Agent': HEADERS['User-Agent'] },
+                        body: JSON.stringify({ timings: [{ topic_id: t.id, msecs: readMs }] })
+                    }).catch(() => {});
+                    ok++;
+                }
+                // Stage 4: 保存状态
+                await tgEdit(chatId, mid, "🟡 阶段4/4: 保存状态...", null, env);
                 const st = JSON.parse(await env.GLADOS_DB.get('NS_STATE_' + userId) || '{}');
-                const info = [];
-                info.push(`✅ 阅读完成！`);
-                info.push(`📖 本次累计 ${st.readTotal || 0} 帖（今日 ${st.readsToday || 0} 帖）`);
-                if (st.cookieError) info.push(`⚠️ ${st.cookieError}`);
-                if (st.queue && Array.isArray(st.queue)) info.push(`📋 队列剩余 ${st.queue.length} 帖`);
-                const lastResult = st._lastError;
-                if (lastResult) info.push(`🔍 上次错误: ${lastResult}`);
-                await tgEdit(chatId, msgId, info.join('\n'), null, env);
+                const today = new Date().toISOString().slice(0,10);
+                if (st.date === today) st.readsToday = (st.readsToday || 0) + ok;
+                else { st.date = today; st.readsToday = ok; }
+                st.readTotal = (st.readTotal || 0) + ok;
+                await env.GLADOS_DB.put('NS_STATE_' + userId, JSON.stringify(st));
+                await tgEdit(chatId, mid, `✅ 手动阅读完成\n📖 成功阅读 ${ok}/${topics.length} 帖\n📚 累计 ${st.readTotal} 帖（今日 ${st.readsToday} 帖）`, null, env);
             } catch(e) {
-                await tgEdit(chatId, msgId, `❌ 阅读失败: ${e.message || e.stack || '未知错误'}`, null, env);
+                await tgEdit(chatId, mid, `❌ 阅读异常: ${e.message || e.name}`, null, env);
             }
             return;
         }
