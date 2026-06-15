@@ -62,16 +62,17 @@ LinuxDO 的 Cloudflare 防护较严格，CF Workers 的请求可能被 `JS chall
 浏览器打开 linux.do 过 CF → F12 → Application → Cookies → 复制完整 cookie（含 `cf_clearance`）→ 在 bot 中「🔁 更新 Cookies」。有效期取决于 CF TTL，一般几小时到一天。
 
 **方式二：Sidecar Proxy（一劳永逸）**  
-部署一个带 Playwright 的轻量转发服务，自动处理 CF 挑战，cookie 自动续期。支持以下平台：
+部署一个带 Playwright 的轻量转发服务，自动处理 CF 挑战，cookie 自动续期。一键部署：
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Linsars/glados-discourse-bot)
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new?template=https%3A%2F%2Fgithub.com%2FLinsars%2Fglados-discourse-bot%2Ftree%2Fmain%2Fsidecar)
 
 部署步骤：
-1. Fork 本仓库，确保 `sidecar/` 目录完整
-2. 在 Render/Railway 选择「从仓库部署」，Dockerfile 路径指向 `sidecar/`
-3. 部署完成后获得 Proxy URL（例如 `https://ld-proxy.onrender.com`）
-4. 在 bot 的 LinuxDO 账户管理中绑定此 URL
+1. 点击上方按钮 → 授权 GitHub → 选择仓库
+2. 等待构建完成（约 3-5 分钟，含 Chromium 安装）
+3. 获得 Proxy URL（例如 `https://ld-proxy.onrender.com`）
+4. 在 bot 的 LinuxDO 账户管理中点击「🌐 Proxy」→ 输入此 URL
 
 **方式三：均不配置**  
 Bot 正常跑 NL/NS/GLADOS 功能，LD 显示 `❌ CF 拦截`，不影响其他功能。

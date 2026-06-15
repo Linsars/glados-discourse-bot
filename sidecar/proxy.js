@@ -18,6 +18,8 @@ async function getBrowser() {
 
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
+app.get('/health', (req, res) => res.json({ ok: true }));
+
 app.get('/*', async (req, res) => {
   const cookieStr = req.query._cookie || '';
   const target = 'https://linux.do' + req.path + '?' + req.url.split('?')[1] || '';
