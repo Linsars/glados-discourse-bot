@@ -66,7 +66,7 @@ LinuxDO 的 Cloudflare 防护较严格，CF Workers 的请求可能被 `JS chall
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Linsars/glados-discourse-bot)
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new?template=https%3A%2F%2Fgithub.com%2FLinsars%2Fglados-discourse-bot%2Ftree%2Fmain%2Fsidecar)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new?template=https://github.com/Linsars/glados-discourse-bot)
 
 部署步骤：
 1. 点击上方按钮 → 授权 GitHub → 选择仓库
