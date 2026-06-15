@@ -909,17 +909,19 @@ async function handleCallback(callbackQuery, env, origin) {
     else if (data === 'add_nodeloc') {
         await env.GLADOS_DB.put(`STATE_${userId}`, 'AWAITING_NODELOC_COOKIE', { expirationTtl: 300 });
         await env.GLADOS_DB.put(`TEMP_${userId}`, 'nodeloc.com', { expirationTtl: 300 });
-        await tgSend(chatId, "🌐 <b>绑定 NodeLoc 账号</b>\n\n直接发送 Cookie，Bot 自动解析用户名。\n\n格式：<code>_forum_session=xxx; _t=yyy</code>\n\n💡 先登录 NodeLoc，浏览器 F12 → Application → Cookies → 复制 <code>_forum_session</code> 和 <code>_t</code> 的值。", env);
+        await tgSend(chatId, "🌐 <b>绑定 NodeLoc 账号</b>\n\n打开 https://www.nodeloc.com → F12 → Application → Cookies → 右键复制全部 Cookie，直接粘贴发送。\n\nBot 会自动解析。", env, { inline_keyboard: [[{ text: "🔙 返回", callback_data: "list_manage" }]] });
     }
     else if (data === 'add_nodeseek') {
         await env.GLADOS_DB.put(`STATE_${userId}`, 'AWAITING_NODESEEK_COOKIE', { expirationTtl: 300 });
         await env.GLADOS_DB.put(`TEMP_${userId}`, 'nodeseek.cc', { expirationTtl: 300 });
-        await tgSend(chatId, "🔹 <b>绑定 NodeSeek 账号</b>\n\n直接发送 Cookie，Bot 自动解析用户名。\n\n格式：<code>_forum_session=xxx; _t=yyy</code>\n\n💡 先登录 NodeSeek，浏览器 F12 → Application → Cookies → 复制 <code>_forum_session</code> 和 <code>_t</code> 的值。", env);
+        await tgSend(chatId, "🔹 <b>绑定 NodeSeek 账号</b>\n\n打开 https://nodeseek.cc → F12 → Application → Cookies → 右键复制全部 Cookie，直接粘贴发送。\n\nBot 会自动解析。", env, { inline_keyboard: [[{ text: "🔙 返回", callback_data: "list_manage" }]] });
     }
     else if (data === 'add_linuxdo') {
         await env.GLADOS_DB.put(`STATE_${userId}`, 'AWAITING_LINUXDO_COOKIE', { expirationTtl: 300 });
         await env.GLADOS_DB.put(`TEMP_${userId}`, 'linux.do', { expirationTtl: 300 });
-        await tgSend(chatId, "🐧 <b>绑定 Linux DO 账号</b>\n\n直接发送 Cookie 即可（如有 CF 防护，自动提示改用邮箱格式）。\n\n格式：<code>_forum_session=xxx; _t=yyy; cf_clearance=zzz</code>\n\n💡 先登录 linux.do 过 CF 验证，浏览器 F12 → Application → Cookies → 复制 <code>_forum_session</code>、<code>_t</code>、<code>cf_clearance</code> 三个值。", env);
+        await tgSend(chatId, "🐧 <b>绑定 Linux DO 账号</b>\n\n打开 https://linux.do → F12 → Application → Cookies → 右键复制全部 Cookie，直接粘贴发送。\n\n💡 如果粘贴后 Bot 提示获取超时，说明 CF 防护拦截了 Bot 请求，需等待几小时到一天后重试，或换个时间段再试。\n\n需要手动阅读时 Bot 会显示 CF 拦截状态。", env, { inline_keyboard: [[{ text: "🔙 返回", callback_data: "list_manage" }]] });", env, { inline_keyboard: [[{ text: "🔙 返回", callback_data: "list_manage" }]] });
+    }
+    else if (data === 'bind_ns') {
     }
     else if (data.startsWith('doexch_')) {
         const parts = data.split('_');
