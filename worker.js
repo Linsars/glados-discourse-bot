@@ -103,9 +103,10 @@ async function nlReadTopic(baseUrl, cookie, topic, fast = false) {
     const readTime = fast ? nlRand(2000, 5000) : nlRand(60000, 120000);
     await nlSleep(fast ? nlRand(500, 1500) : readTime);
 
+    let timingOk = false;
     if (csrf) {
         try {
-            await fetch(baseUrl + '/t/' + topic.id + '/timings', {
+            const timingResp = await fetch(baseUrl + '/t/' + topic.id + '/timings', {
                 method: 'POST',
                 headers: {
                     'User-Agent': ua,
@@ -117,12 +118,13 @@ async function nlReadTopic(baseUrl, cookie, topic, fast = false) {
                     'Referer': baseUrl + '/t/' + topic.id,
                     'Origin': baseUrl
                 },
-                body: JSON.stringify({ timings: { 1: readTime }, topic_time: readTime })
+                body: JSON.stringify({ timings: [{ msecs: readTime }], topic_time: readTime })
             });
+            timingOk = timingResp.ok;
         } catch(e) {}
     }
     await fetch(baseUrl + '/', { headers: { ...hdrs, 'Referer': baseUrl + '/t/' + topic.id } });
-    return { ok: true, cookieError: '', readTime };
+    return { ok: true, cookieError: '', readTime, timingOk };
 }
 
 // 获取今日 NodeLoc 统计
@@ -281,15 +283,17 @@ async function runNodelocBatch(userId, cookie, env, baseUrl = NL_BASE, fast = fa
                 if (!result.cookieError) continue;
                 break;
             }
-            state.readsToday++;
-            state.readTotal = (state.readTotal || 0) + 1;
-            state.totalReadTime = (state.totalReadTime || 0) + result.readTime;
+            if (result.timingOk) {
+                state.readsToday = (state.readsToday || 0) + 1;
+                state.readTotal = (state.readTotal || 0) + 1;
+                state.totalReadTime = (state.totalReadTime || 0) + result.readTime;
+            }
             state.lastRead = now;
             state.cookieError = '';
             state.failCount = 0;
             state.failAlerted = false;
             delete state._lastError;
-            readCount++;
+            if (result.timingOk) readCount++;
 
             // 每帖后 12% 概率休息
             if (Math.random() < NL_REST_CHANCE) {
