@@ -45,12 +45,12 @@ async function nlGetState(userId, env, prefix = 'NL') {
             const p = JSON.parse(raw);
             if (p && typeof p === 'object' && !('queue' in p)) {
                 // 状态为空对象或结构残缺，用默认值填充
-                return { date: '', readsToday: 0, readTotal: 0, totalReadTime: 0, restUntil: 0, lastRead: 0, queue: [], cookieError: '', failCount: 0, failAlerted: false, ...p };
+                return { date: '', readsToday: 0, readTotal: 0, totalReadTime: 0, todayReadTime: 0, restUntil: 0, lastRead: 0, queue: [], cookieError: '', failCount: 0, failAlerted: false, ...p };
             }
             return p;
         } catch(e) {}
     }
-    return { date: '', readsToday: 0, readTotal: 0, totalReadTime: 0, restUntil: 0, lastRead: 0, queue: [], cookieError: '', failCount: 0, failAlerted: false };
+    return { date: '', readsToday: 0, readTotal: 0, totalReadTime: 0, todayReadTime: 0, restUntil: 0, lastRead: 0, queue: [], cookieError: '', failCount: 0, failAlerted: false };
 }
 
 async function nlSaveState(userId, state, env, prefix = 'NL') {
@@ -279,6 +279,7 @@ async function runNodelocBatch(userId, cookie, env, baseUrl = NL_BASE, fast = fa
         if (!state.readsToday) state.readsToday = 0;
         if (!state.readTotal) state.readTotal = 0;
         if (!state.totalReadTime) state.totalReadTime = 0;
+        if (!state.todayReadTime) state.todayReadTime = 0;
         if (!state.restUntil) state.restUntil = 0;
         if (!state.failCount) state.failCount = 0;
         if (!state.failAlerted) state.failAlerted = false;
@@ -286,6 +287,7 @@ async function runNodelocBatch(userId, cookie, env, baseUrl = NL_BASE, fast = fa
         if (state.date !== today) {
             state.date = today;
             state.readsToday = 0;
+            state.todayReadTime = 0;
         }
 
         // 休息期
@@ -343,6 +345,7 @@ async function runNodelocBatch(userId, cookie, env, baseUrl = NL_BASE, fast = fa
                 state.readsToday = (state.readsToday || 0) + 1;
                 state.readTotal = (state.readTotal || 0) + 1;
                 state.totalReadTime = (state.totalReadTime || 0) + result.readTime;
+                state.todayReadTime = (state.todayReadTime || 0) + result.readTime;
                 if (!state.readTopicIds) state.readTopicIds = [];
                 if (topic && topic.id && !state.readTopicIds.includes(topic.id)) {
                     state.readTopicIds.push(topic.id);
@@ -418,6 +421,7 @@ export default {
         
         if (url.pathname === '/debug') {
             const diag = {
+                version: 'nl-unread-20260618',
                 hasKV: typeof env.GLADOS_DB !== 'undefined',
                 hasAdminID: typeof env.ADMIN_ID !== 'undefined',
                 hasBotToken: typeof env.BOT_TOKEN !== 'undefined'
@@ -719,7 +723,7 @@ async function handleCallback(callbackQuery, env, origin) {
             msg += `👤 账号: ${maskEmail(acc.email || acc.username || '?', pref.showEmail)}\n`;
             msg += `━━━━━━━━━━━━━━━━\n`;
             msg += `📖 今日已读: ${isToday ? (st.readsToday || 0) : 0} 帖\n`;
-            msg += `⏱ 今日阅读: ${isToday ? Math.round((st.totalReadTime || 0) / 60000) : 0} 分钟\n`;
+            msg += `⏱ 今日阅读: ${isToday ? Math.round((st.todayReadTime || 0) / 60000) : 0} 分钟\n`;
             msg += `📚 累计已读: ${st.readTotal || 0} 帖\n`;
             msg += `━━━━━━━━━━━━━━━━\n`;
             if (st.cookieError) {
@@ -744,7 +748,7 @@ async function handleCallback(callbackQuery, env, origin) {
             msg += `👤 账号: ${acc.username || '?'}\n`;
             msg += `━━━━━━━━━━━━━━━━\n`;
             msg += `📖 今日已读: ${isToday ? (st.readsToday || 0) : 0} 帖\n`;
-            msg += `⏱ 今日阅读: ${isToday ? Math.round((st.totalReadTime || 0) / 60000) : 0} 分钟\n`;
+            msg += `⏱ 今日阅读: ${isToday ? Math.round((st.todayReadTime || 0) / 60000) : 0} 分钟\n`;
             msg += `📚 累计已读: ${st.readTotal || 0} 帖\n`;
             msg += `━━━━━━━━━━━━━━━━\n`;
             if (st.cookieError) {
@@ -805,8 +809,8 @@ async function handleCallback(callbackQuery, env, origin) {
                 }
                 var st=JSON.parse(await env.GLADOS_DB.get('NL_STATE_'+userId)||'{}');
                 var today=new Date().toISOString().slice(0,10);
-                if(st.date===today)st.readsToday=(st.readsToday||0)+ok;else{st.date=today;st.readsToday=ok;}
-                st.readTotal=(st.readTotal||0)+ok;st.totalReadTime=(st.totalReadTime||0)+totalMs;
+                if(st.date===today)st.readsToday=(st.readsToday||0)+ok;else{st.date=today;st.readsToday=ok;st.todayReadTime=0;}
+                st.readTotal=(st.readTotal||0)+ok;st.totalReadTime=(st.totalReadTime||0)+totalMs;st.todayReadTime=(st.todayReadTime||0)+totalMs;
                 st.failCount = ok > 0 ? 0 : (st.failCount||0) + 1;
                 if (ok > 0) st.failAlerted = false;
                 await env.GLADOS_DB.put('NL_STATE_'+userId,JSON.stringify(st));
@@ -848,8 +852,8 @@ async function handleCallback(callbackQuery, env, origin) {
                 }
                 var st=JSON.parse(await env.GLADOS_DB.get('NS_STATE_'+userId)||'{}');
                 var today=new Date().toISOString().slice(0,10);
-                if(st.date===today)st.readsToday=(st.readsToday||0)+ok;else{st.date=today;st.readsToday=ok;}
-                st.readTotal=(st.readTotal||0)+ok;st.totalReadTime=(st.totalReadTime||0)+totalMs;
+                if(st.date===today)st.readsToday=(st.readsToday||0)+ok;else{st.date=today;st.readsToday=ok;st.todayReadTime=0;}
+                st.readTotal=(st.readTotal||0)+ok;st.totalReadTime=(st.totalReadTime||0)+totalMs;st.todayReadTime=(st.todayReadTime||0)+totalMs;
                 st.failCount = ok > 0 ? 0 : (st.failCount||0) + 1;
                 if (ok > 0) st.failAlerted = false;
                 await env.GLADOS_DB.put('NS_STATE_'+userId,JSON.stringify(st));
