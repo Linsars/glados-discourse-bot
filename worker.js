@@ -313,9 +313,13 @@ async function runNodelocBatch(userId, cookie, env, baseUrl = NL_BASE, fast = fa
                     state.failCount = (state.failCount || 0) + 1;
                     break;
                 }
+                if (res.source === 'empty') {
+                    state._lastError = '暂无可读话题';
+                    state.cookieError = '';
+                    break;
+                }
                 if (res.topics.length === 0) {
                     state._lastError = '刷新队列返回空';
-                    state.cookieError = 'CF 拦截或 cookie 失效';
                     state.failCount = (state.failCount || 0) + 1;
                     break;
                 }
